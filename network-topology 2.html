@@ -1,0 +1,1226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Network Topology Visualiser — Jyoti Cyber Hygiene Tool</title>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet"/>
+  <style>
+    :root {
+      --bg:          #0d0b14;
+      --bg2:         #131020;
+      --bg3:         #1a1630;
+      --bg4:         #211d3a;
+      --border:      rgba(139,92,246,0.18);
+      --border2:     rgba(139,92,246,0.08);
+      --text:        #e8e0ff;
+      --muted:       #6b5f8a;
+      --muted2:      #9d8ec4;
+      --accent:      #a855f7;
+      --accent2:     #7c3aed;
+      --accent-dim:  rgba(168,85,247,0.12);
+      --accent-glow: rgba(168,85,247,0.25);
+      --pink:        #ec4899;
+      --green:       #34d399;
+      --yellow:      #fbbf24;
+      --red:         #f87171;
+      --blue:        #60a5fa;
+      --cyan:        #22d3ee;
+
+      --c-server:    #60a5fa;
+      --c-router:    #34d399;
+      --c-firewall:  #f87171;
+      --c-endpoint:  #fbbf24;
+      --c-cloud:     #a855f7;
+      --c-iot:       #fb923c;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Syne', sans-serif;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* =============================================
+       BACKGROUND — purple gradient orbs like the
+       reference image. Multiple radial gradients
+       layered to create depth.
+    ============================================= */
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background:
+        radial-gradient(ellipse 55% 45% at 15% 15%, rgba(124,58,237,0.12) 0%, transparent 65%),
+        radial-gradient(ellipse 45% 55% at 85% 85%, rgba(168,85,247,0.09) 0%, transparent 65%),
+        radial-gradient(ellipse 35% 35% at 50% 50%, rgba(236,72,153,0.04) 0%, transparent 60%);
+      pointer-events: none; z-index: 0;
+    }
+
+    /* Subtle grid overlay */
+    body::after {
+      content: '';
+      position: fixed; inset: 0;
+      background-image:
+        linear-gradient(rgba(139,92,246,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(139,92,246,0.03) 1px, transparent 1px);
+      background-size: 36px 36px;
+      pointer-events: none; z-index: 0;
+    }
+
+    /* =============================================
+       TOP BAR
+    ============================================= */
+    .topbar {
+      position: relative; z-index: 100;
+      display: flex; align-items: center;
+      justify-content: space-between;
+      padding: 10px 18px;
+      background: rgba(13,11,20,0.9);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(24px);
+      flex-shrink: 0;
+      gap: 10px;
+    }
+
+    .brand {
+      display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+    }
+
+    .brand-icon {
+      width: 30px; height: 30px;
+      background: linear-gradient(135deg, var(--accent2), var(--pink));
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 14px;
+      box-shadow: 0 0 16px var(--accent-glow);
+    }
+
+    .brand-text { font-size: 13px; font-weight: 700; letter-spacing: -0.3px; color: var(--text); }
+    .brand-sub  {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px; color: var(--muted); letter-spacing: 1px; margin-top: 1px;
+    }
+
+    .toolbar {
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    }
+
+    .mode-btn {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; letter-spacing: 0.8px;
+      padding: 6px 12px; border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--accent-dim);
+      color: var(--muted2); cursor: pointer;
+      transition: all 0.2s; white-space: nowrap;
+    }
+    .mode-btn:hover  { border-color: var(--accent); color: var(--text); }
+    .mode-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 0 12px var(--accent-glow); }
+    .mode-btn.del    { border-color: rgba(248,113,113,0.3); color: var(--red); background: rgba(248,113,113,0.08); }
+    .mode-btn.del:hover, .mode-btn.del.active { background: var(--red); border-color: var(--red); color: #fff; }
+
+    .sep { width: 1px; height: 22px; background: var(--border); margin: 0 2px; }
+
+    .stat-pill {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      color: var(--muted2); padding: 5px 10px; border-radius: 20px;
+      border: 1px solid var(--border2); background: var(--accent-dim);
+    }
+    .stat-pill b { color: var(--accent); }
+
+    /* =============================================
+       LAYOUT
+    ============================================= */
+    .main {
+      position: relative; z-index: 1;
+      display: flex; flex: 1; overflow: hidden;
+    }
+
+    /* =============================================
+       LEFT PANEL — palette
+    ============================================= */
+    .left-panel {
+      width: 188px; flex-shrink: 0;
+      background: rgba(13,11,20,0.75);
+      border-right: 1px solid var(--border);
+      backdrop-filter: blur(20px);
+      padding: 14px 10px;
+      overflow-y: auto;
+      display: flex; flex-direction: column; gap: 14px;
+    }
+
+    .panel-title {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px; letter-spacing: 2px;
+      color: var(--muted); text-transform: uppercase; margin-bottom: 6px;
+    }
+
+    .palette-node {
+      display: flex; align-items: center; gap: 9px;
+      padding: 9px 11px; border-radius: 8px;
+      border: 1px solid var(--border2);
+      background: rgba(139,92,246,0.05);
+      cursor: grab; margin-bottom: 5px;
+      transition: all 0.2s; user-select: none;
+    }
+    .palette-node:hover {
+      background: var(--accent-dim);
+      border-color: var(--accent);
+      transform: translateX(3px);
+      box-shadow: 0 0 12px var(--accent-glow);
+    }
+    .palette-node:active { cursor: grabbing; }
+
+    .p-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+    .p-name { font-size: 12px; font-weight: 600; color: var(--text); }
+    .p-sub  { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--muted); }
+
+    .legend-item {
+      display: flex; align-items: center; gap: 7px; margin-bottom: 5px;
+      font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted2);
+    }
+    .l-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    .tip-box {
+      background: var(--accent-dim);
+      border: 1px solid var(--border);
+      border-radius: 8px; padding: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 9px; color: var(--muted2); line-height: 1.9; letter-spacing: 0.3px;
+    }
+
+    /* =============================================
+       CANVAS WRAP
+    ============================================= */
+    .canvas-wrap {
+      flex: 1; position: relative; overflow: hidden;
+    }
+
+    #svg-canvas {
+      position: absolute; inset: 0; width: 100%; height: 100%;
+      pointer-events: none;
+    }
+
+    /* Animated flowing connection lines */
+    .conn-line {
+      stroke: rgba(168,85,247,0.35);
+      stroke-width: 1.5;
+      stroke-dasharray: 6 4;
+      fill: none;
+      animation: flow 2s linear infinite;
+      pointer-events: all;
+      cursor: pointer;
+    }
+    .conn-line:hover { stroke: rgba(168,85,247,0.7); stroke-width: 2; }
+
+    @keyframes flow {
+      from { stroke-dashoffset: 0; }
+      to   { stroke-dashoffset: -20; }
+    }
+
+    #temp-line {
+      stroke: rgba(168,85,247,0.5);
+      stroke-width: 1.5; stroke-dasharray: 5 4; fill: none;
+    }
+
+    .canvas-empty {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      pointer-events: none;
+    }
+    .empty-icon { font-size: 44px; margin-bottom: 14px; opacity: 0.15; }
+    .empty-text {
+      font-family: 'JetBrains Mono', monospace; font-size: 11px;
+      color: var(--muted); letter-spacing: 1px; text-align: center; line-height: 2.2;
+    }
+
+    /* =============================================
+       NODE ELEMENTS
+    ============================================= */
+    .node {
+      position: absolute;
+      display: flex; flex-direction: column; align-items: center; gap: 5px;
+      cursor: pointer; user-select: none;
+      transform: translate(-50%, -50%);
+      z-index: 10; width: 68px;
+    }
+
+    .node-body {
+      width: 50px; height: 50px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      border: 2px solid rgba(255,255,255,0.1);
+      backdrop-filter: blur(8px);
+      transition: box-shadow 0.2s, transform 0.2s;
+      position: relative;
+    }
+    .node:hover .node-body { transform: scale(1.08); }
+    .node.selected .node-body { box-shadow: 0 0 0 2.5px var(--accent), 0 0 24px var(--accent-glow); }
+    .node.src .node-body     { box-shadow: 0 0 0 2.5px var(--green), 0 0 20px rgba(52,211,153,0.4); }
+
+    .node-status-dot {
+      position: absolute; bottom: 1px; right: 1px;
+      width: 11px; height: 11px; border-radius: 50%;
+      border: 2px solid var(--bg);
+    }
+    .s-ok   { background: var(--green); }
+    .s-warn { background: var(--yellow); animation: blink 1.5s ease-in-out infinite; }
+    .s-crit { background: var(--red);   animation: blink 0.8s ease-in-out infinite; }
+    @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.25} }
+
+    .node-name {
+      font-size: 9px; font-weight: 600;
+      color: var(--text); text-align: center; white-space: nowrap;
+      text-shadow: 0 1px 6px rgba(0,0,0,0.9);
+      font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px;
+    }
+
+    /* =============================================
+       HOVER TOOLTIP
+       Shows on node hover. Positioned above the node.
+       Contains status + reason + i-button for details.
+    ============================================= */
+    .hover-tip {
+      position: absolute;
+      background: rgba(19,16,32,0.97);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 10px 13px;
+      min-width: 190px;
+      max-width: 230px;
+      pointer-events: none;   /* won't block mouse events on canvas */
+      z-index: 999;
+      display: none;
+      backdrop-filter: blur(20px);
+      box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(168,85,247,0.1);
+    }
+
+    .hover-tip.visible { display: block; }
+
+    .tip-node-name {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; color: var(--muted2); margin-bottom: 6px; letter-spacing: 1px;
+    }
+
+    .tip-status-row {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+    }
+
+    .tip-badge {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px; padding: 3px 10px;
+      border-radius: 20px; font-weight: 600; letter-spacing: 0.5px;
+    }
+    .tb-ok   { background: rgba(52,211,153,0.15); color:var(--green); border:1px solid rgba(52,211,153,0.3); }
+    .tb-warn { background: rgba(251,191,36,0.15);  color:var(--yellow);border:1px solid rgba(251,191,36,0.3); }
+    .tb-crit { background: rgba(248,113,113,0.15); color:var(--red);   border:1px solid rgba(248,113,113,0.3); }
+
+    /* The i button — clickable to expand reason */
+    .tip-i-btn {
+      width: 18px; height: 18px; border-radius: 50%;
+      background: rgba(168,85,247,0.2); border: 1px solid var(--accent);
+      color: var(--accent); font-size: 10px; font-family: 'JetBrains Mono', monospace;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; flex-shrink: 0;
+      pointer-events: all;  /* this part IS clickable */
+      transition: background 0.2s;
+      font-style: italic; font-weight: 700;
+    }
+    .tip-i-btn:hover { background: var(--accent); color: #fff; }
+
+    .tip-reason {
+      font-size: 11px; color: var(--muted2); line-height: 1.6;
+      border-top: 1px solid var(--border2); padding-top: 7px; margin-top: 4px;
+      font-family: 'JetBrains Mono', monospace; letter-spacing: 0.2px;
+    }
+
+    .tip-cve-count {
+      margin-top: 6px;
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    }
+
+    /* =============================================
+       RIGHT PANEL — node detail
+    ============================================= */
+    .right-panel {
+      width: 0; flex-shrink: 0;
+      background: rgba(13,11,20,0.9);
+      border-left: 1px solid var(--border);
+      backdrop-filter: blur(20px);
+      overflow: hidden;
+      transition: width 0.3s cubic-bezier(0.4,0,0.2,1);
+    }
+    .right-panel.open { width: 255px; }
+
+    .right-inner { width: 255px; padding: 14px; height: 100%; overflow-y: auto; }
+
+    .detail-hdr {
+      display: flex; align-items: center; justify-content: space-between;
+      margin-bottom: 14px;
+    }
+    .detail-title { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
+    .close-btn {
+      background: var(--accent-dim); border: 1px solid var(--border);
+      border-radius: 6px; color: var(--muted2); cursor: pointer;
+      padding: 4px 8px; font-size: 13px; transition: all 0.2s;
+    }
+    .close-btn:hover { color: var(--text); border-color: var(--accent); }
+
+    .d-sec { margin-bottom: 14px; }
+    .d-sec-title {
+      font-family: 'JetBrains Mono', monospace; font-size: 9px;
+      letter-spacing: 2px; color: var(--muted); text-transform: uppercase; margin-bottom: 7px;
+    }
+    .d-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 0; border-bottom: 1px solid var(--border2); font-size: 12px;
+    }
+    .d-key { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--muted2); }
+    .d-val { font-weight: 600; font-size: 12px; text-align: right; max-width: 140px; }
+
+    .d-badge {
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+      padding: 3px 10px; border-radius: 20px; font-weight: 500;
+    }
+    .db-ok   { background:rgba(52,211,153,0.12); color:var(--green); border:1px solid rgba(52,211,153,0.3); }
+    .db-warn { background:rgba(251,191,36,0.12);  color:var(--yellow);border:1px solid rgba(251,191,36,0.3); }
+    .db-crit { background:rgba(248,113,113,0.12); color:var(--red);   border:1px solid rgba(248,113,113,0.3); }
+
+    .cve-card {
+      background: var(--accent-dim); border: 1px solid var(--border);
+      border-radius: 7px; padding: 8px 10px; margin-bottom: 6px;
+      font-family: 'JetBrains Mono', monospace; font-size: 10px;
+    }
+    .cve-id   { color: var(--accent); margin-bottom: 3px; }
+    .cve-name { font-family: 'Syne', sans-serif; font-size: 11px; color: var(--text); margin-bottom: 4px; }
+    .cve-sev  { font-size: 9px; padding: 2px 7px; border-radius: 20px; display: inline-block; }
+    .sc { background:rgba(248,113,113,0.18); color:var(--red); }
+    .sh { background:rgba(251,191,36,0.18);  color:var(--yellow); }
+    .sm { background:rgba(96,165,250,0.18);  color:var(--blue); }
+
+    .act-btn {
+      width: 100%; padding: 8px 12px; border-radius: 7px;
+      border: 1px solid var(--border); background: var(--accent-dim);
+      color: var(--text); font-family: 'Syne', sans-serif;
+      font-size: 12px; font-weight: 600; cursor: pointer;
+      margin-bottom: 5px; transition: all 0.2s; text-align: left;
+    }
+    .act-btn:hover { background: rgba(168,85,247,0.2); border-color: var(--accent); }
+    .act-btn.red { border-color:rgba(248,113,113,0.3); color:var(--red); background:rgba(248,113,113,0.06); }
+    .act-btn.red:hover { background:rgba(248,113,113,0.15); }
+
+    /* =============================================
+       MINIMAP
+       A small overview of the entire topology.
+       Sits in the bottom-right corner of the canvas.
+       Shows all nodes as tiny dots + connections as lines.
+       A viewport rectangle shows what's currently visible.
+       Rendered on a <canvas> element, redrawn on change.
+    ============================================= */
+    #minimap {
+      position: absolute;
+      bottom: 16px; right: 16px;
+      width: 160px; height: 110px;
+      background: rgba(13,11,20,0.9);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      backdrop-filter: blur(16px);
+      z-index: 50;
+      overflow: hidden;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    }
+
+    #minimap-canvas {
+      width: 100%; height: 100%; display: block;
+    }
+
+    #minimap-label {
+      position: absolute; top: 6px; left: 8px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 8px; color: var(--muted); letter-spacing: 1.5px;
+      text-transform: uppercase; pointer-events: none;
+    }
+
+    /* =============================================
+       TOAST
+    ============================================= */
+    #toast {
+      position: fixed; bottom: 24px; left: 50%;
+      transform: translateX(-50%) translateY(80px);
+      background: rgba(19,16,32,0.97);
+      border: 1px solid var(--border);
+      border-radius: 10px; padding: 9px 20px;
+      font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text);
+      backdrop-filter: blur(20px); z-index: 999;
+      transition: transform 0.3s cubic-bezier(0.4,0,0.2,1);
+      white-space: nowrap; box-shadow: 0 0 20px var(--accent-glow);
+    }
+    #toast.show { transform: translateX(-50%) translateY(0); }
+  </style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="brand">
+    <div class="brand-icon">🛡</div>
+    <div>
+      <div class="brand-text">Network Topology Visualiser</div>
+      <div class="brand-sub">JYOTI CYBER HYGIENE TOOL</div>
+    </div>
+  </div>
+  <div class="toolbar">
+    <button class="mode-btn active" id="btn-drag"    onclick="setMode('drag')">✥ DRAG</button>
+    <button class="mode-btn"        id="btn-connect" onclick="setMode('connect')">⟶ CONNECT</button>
+    <div class="sep"></div>
+    <button class="mode-btn del"    id="btn-delete"  onclick="setMode('delete')">✕ DELETE</button>
+    <button class="mode-btn"                         onclick="clearAll()">⟳ CLEAR</button>
+    <div class="sep"></div>
+    <div class="stat-pill">Nodes <b id="sn">0</b></div>
+    <div class="stat-pill">Links <b id="sl">0</b></div>
+    <div class="stat-pill">Vulns <b id="sv">0</b></div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+  <!-- LEFT PALETTE -->
+  <div class="left-panel">
+    <div>
+      <div class="panel-title">// Drag to canvas</div>
+      <div class="palette-node" draggable="true" data-type="server"   ondragstart="pdrag(event)">
+        <div class="p-dot" style="background:var(--c-server)"></div>
+        <div><div class="p-name">Server</div><div class="p-sub">Web / DB / App</div></div>
+      </div>
+      <div class="palette-node" draggable="true" data-type="router"   ondragstart="pdrag(event)">
+        <div class="p-dot" style="background:var(--c-router)"></div>
+        <div><div class="p-name">Router</div><div class="p-sub">Gateway</div></div>
+      </div>
+      <div class="palette-node" draggable="true" data-type="firewall" ondragstart="pdrag(event)">
+        <div class="p-dot" style="background:var(--c-firewall)"></div>
+        <div><div class="p-name">Firewall</div><div class="p-sub">Perimeter</div></div>
+      </div>
+      <div class="palette-node" draggable="true" data-type="endpoint" ondragstart="pdrag(event)">
+        <div class="p-dot" style="background:var(--c-endpoint)"></div>
+        <div><div class="p-name">Endpoint</div><div class="p-sub">Laptop / PC</div></div>
+      </div>
+      <div class="palette-node" draggable="true" data-type="cloud"    ondragstart="pdrag(event)">
+        <div class="p-dot" style="background:var(--c-cloud)"></div>
+        <div><div class="p-name">Cloud</div><div class="p-sub">AWS / Azure</div></div>
+      </div>
+      <div class="palette-node" draggable="true" data-type="iot"      ondragstart="pdrag(event)">
+        <div class="p-dot" style="background:var(--c-iot)"></div>
+        <div><div class="p-name">IoT</div><div class="p-sub">Sensors</div></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="panel-title">// Status</div>
+      <div class="legend-item"><div class="l-dot" style="background:var(--green)"></div>Secure</div>
+      <div class="legend-item"><div class="l-dot" style="background:var(--yellow)"></div>Warning</div>
+      <div class="legend-item"><div class="l-dot" style="background:var(--red)"></div>Critical</div>
+    </div>
+
+    <div class="tip-box">
+      1. DRAG nodes to canvas<br>
+      2. CONNECT → click 2 nodes<br>
+      3. HOVER node for quick info<br>
+      4. Click ⓘ for status reason<br>
+      5. DRAG mode → click = detail<br>
+      6. DELETE → click to remove
+    </div>
+  </div>
+
+  <!-- CANVAS -->
+  <div class="canvas-wrap" id="cw"
+       ondragover="e=>e.preventDefault()"
+       ondrop="cdrop(event)"
+       onclick="cwClick(event)">
+
+    <svg id="svg-canvas">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5"
+                markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+          <path d="M2 2L8 5L2 8" fill="none" stroke="rgba(168,85,247,0.6)"
+                stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </marker>
+      </defs>
+      <g id="conn-layer"></g>
+      <line id="temp-line" x1="0" y1="0" x2="0" y2="0" style="display:none"/>
+    </svg>
+
+    <!-- Empty hint -->
+    <div class="canvas-empty" id="ce">
+      <div class="empty-icon">🌐</div>
+      <div class="empty-text">drag nodes from the left<br>to build your network</div>
+    </div>
+
+    <!-- MINIMAP -->
+    <div id="minimap">
+      <div id="minimap-label">OVERVIEW</div>
+      <canvas id="minimap-canvas"></canvas>
+    </div>
+
+    <!-- HOVER TOOLTIP — one shared instance, moved by JS -->
+    <div class="hover-tip" id="hover-tip">
+      <div class="tip-node-name" id="tip-name"></div>
+      <div class="tip-status-row">
+        <div class="tip-badge" id="tip-badge"></div>
+        <!-- The i button. pointer-events:all so it's clickable
+             even though parent tip has pointer-events:none -->
+        <div class="tip-i-btn" id="tip-i-btn" onclick="toggleReason()">i</div>
+      </div>
+      <div class="tip-reason" id="tip-reason" style="display:none"></div>
+      <div class="tip-cve-count" id="tip-cve-count"></div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT DETAIL PANEL -->
+  <div class="right-panel" id="rp">
+    <div class="right-inner" id="ri"></div>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+  /* =============================================
+     DATA & STATE
+  ============================================= */
+  const S = {
+    nodes: [], conns: [], mode: 'drag',
+    nextId: 1, srcId: null, dragType: null,
+    selId: null, hoverId: null, reasonOpen: false,
+    typeCount: {}
+  };
+
+  /* =============================================
+     NODE TYPE DEFINITIONS
+     Each type carries emoji, colors, and a factory
+     function that generates realistic mock data.
+  ============================================= */
+  const TYPES = {
+    server: {
+      emoji:'🖥', color:'var(--c-server)', bg:'rgba(96,165,250,0.14)',
+      mk: n => ({
+        type:'Server', name:n, ip:rip(),
+        os: pick(['Ubuntu 22.04','Windows Server 2022','CentOS 8','Debian 12']),
+        uptime: pick(['99.8%','99.2%','98.1%']),
+        status: pst(), cves: rcve(pick([0,0,1,2,3]))
+      })
+    },
+    router: {
+      emoji:'📡', color:'var(--c-router)', bg:'rgba(52,211,153,0.14)',
+      mk: n => ({
+        type:'Router', name:n, ip:rip(),
+        os: pick(['Cisco IOS 15.9','Juniper JunOS','MikroTik']),
+        uptime: pick(['99.9%','99.7%','99.5%']),
+        status: pick(['ok','ok','ok','warn']), cves: rcve(pick([0,0,1]))
+      })
+    },
+    firewall: {
+      emoji:'🔥', color:'var(--c-firewall)', bg:'rgba(248,113,113,0.14)',
+      mk: n => ({
+        type:'Firewall', name:n, ip:rip(),
+        os: pick(['pfSense 2.7','FortiOS 7.4','PAN-OS 11']),
+        uptime: pick(['100%','99.9%']),
+        status: pick(['ok','ok','ok','ok','warn']), cves: rcve(pick([0,0,1]))
+      })
+    },
+    endpoint: {
+      emoji:'💻', color:'var(--c-endpoint)', bg:'rgba(251,191,36,0.14)',
+      mk: n => ({
+        type:'Endpoint', name:n, ip:rip(),
+        os: pick(['Windows 11','macOS 14','Ubuntu 23.10']),
+        uptime: pick(['Active','Active','Away','Offline']),
+        status: pst(), cves: rcve(pick([0,1,2,3,4]))
+      })
+    },
+    cloud: {
+      emoji:'☁️', color:'var(--c-cloud)', bg:'rgba(168,85,247,0.14)',
+      mk: n => ({
+        type:'Cloud', name:n, ip:rip(),
+        os: pick(['AWS EC2 t3.med','Azure B2s','GCP e2-std']),
+        uptime: pick(['99.99%','99.95%']),
+        status: pst(), cves: rcve(pick([0,0,1,2]))
+      })
+    },
+    iot: {
+      emoji:'📱', color:'var(--c-iot)', bg:'rgba(251,146,60,0.14)',
+      mk: n => ({
+        type:'IoT', name:n, ip:rip(),
+        os: pick(['FreeRTOS','Embedded Linux','Zephyr OS']),
+        uptime: pick(['Online','Online','Intermittent']),
+        status: pick(['ok','warn','warn','critical','critical']),
+        cves: rcve(pick([1,2,3,4]))
+      })
+    }
+  };
+
+  /* =============================================
+     STATUS REASONS
+     Why is a node in a given status?
+     These are the strings shown when user clicks ⓘ.
+     Each type has reasons for each status level.
+  ============================================= */
+  const REASONS = {
+    server: {
+      ok:       'All services running normally. Last vulnerability scan passed. OS patches up to date.',
+      warn:     'Non-critical CVE detected. Patch available but not yet applied. Port 8080 exposed.',
+      critical: 'Critical RCE vulnerability unpatched. Unusual outbound traffic detected on port 4444.'
+    },
+    router: {
+      ok:       'Firmware up to date. No open admin ports exposed externally. ACLs configured correctly.',
+      warn:     'Default admin credentials detected on management interface. Firmware 2 versions behind.',
+      critical: 'Remote code execution vulnerability in current firmware. Management port exposed to internet.'
+    },
+    firewall: {
+      ok:       'Rule set reviewed 7 days ago. All ports correctly filtered. Logs show no intrusion attempts.',
+      warn:     'Overly permissive outbound rules detected. 3 unused allow rules should be cleaned up.',
+      critical: 'Known exploit in current version. Firewall bypassed by fragmented packet attack in lab tests.'
+    },
+    endpoint: {
+      ok:       'Antivirus up to date. Full disk encryption enabled. No suspicious processes detected.',
+      warn:     'Windows Defender signatures 4 days old. User running with admin privileges unnecessarily.',
+      critical: 'Malware signature detected in memory scan. Endpoint not patched against EternalBlue variant.'
+    },
+    cloud: {
+      ok:       'Security groups correctly scoped. No public S3 buckets. CloudTrail logging enabled.',
+      warn:     'IAM role has excessive permissions. MFA not enforced for 2 service accounts.',
+      critical: 'Storage bucket publicly readable. Root account used for API access. No audit logging.'
+    },
+    iot: {
+      ok:       'Isolated on separate VLAN. Firmware latest version. Only required ports open.',
+      warn:     'Firmware 6 months out of date. Device communicating with unknown external IP.',
+      critical: 'Default credentials unchanged. Telnet port 23 open. No encryption on data transmission.'
+    }
+  };
+
+  /* =============================================
+     CVE POOL — realistic vulnerability data
+  ============================================= */
+  const CVES = [
+    {id:'CVE-2024-3400',  name:'PAN-OS Command Injection',    sev:'critical'},
+    {id:'CVE-2024-1709',  name:'ConnectWise Auth Bypass',     sev:'critical'},
+    {id:'CVE-2023-44487', name:'HTTP/2 Rapid Reset',          sev:'high'},
+    {id:'CVE-2023-4966',  name:'Citrix Bleed Disclosure',     sev:'critical'},
+    {id:'CVE-2023-20198', name:'Cisco IOS XE Priv Esc',       sev:'critical'},
+    {id:'CVE-2022-0847',  name:'Dirty Pipe Linux Priv Esc',   sev:'high'},
+    {id:'CVE-2021-44228', name:'Log4Shell RCE',               sev:'critical'},
+    {id:'CVE-2021-34527', name:'PrintNightmare RCE',          sev:'high'},
+    {id:'CVE-2020-1472',  name:'Zerologon Priv Esc',         sev:'critical'},
+    {id:'CVE-2024-21762', name:'Fortinet OOB Write',          sev:'critical'},
+    {id:'CVE-2024-6387',  name:'OpenSSH RegreSSHion RCE',    sev:'critical'},
+    {id:'CVE-2023-42793', name:'TeamCity Auth Bypass',        sev:'critical'},
+    {id:'CVE-2024-0519',  name:'Chrome V8 OOB Access',       sev:'high'},
+    {id:'CVE-2019-0708',  name:'BlueKeep RCE',               sev:'critical'},
+    {id:'CVE-2023-35078', name:'Ivanti EPMM Auth Bypass',    sev:'critical'},
+  ];
+
+  /* HELPERS */
+  function pick(a) { return a[Math.floor(Math.random()*a.length)]; }
+  function rip()   { return `192.168.${Math.floor(Math.random()*5)}.${1+Math.floor(Math.random()*253)}`; }
+  function pst()   { return pick(['ok','ok','ok','warn','critical']); }
+  function rcve(n) { return [...CVES].sort(()=>Math.random()-.5).slice(0,n); }
+  function nname(t){
+    S.typeCount[t] = (S.typeCount[t]||0)+1;
+    const p={server:'SRV',router:'RTR',firewall:'FW',endpoint:'EP',cloud:'CLD',iot:'IOT'};
+    return `${p[t]||'N'}-${String(S.typeCount[t]).padStart(2,'0')}`;
+  }
+
+  /* =============================================
+     MODE
+  ============================================= */
+  function setMode(m) {
+    S.mode = m; S.srcId = null;
+    document.getElementById('temp-line').style.display = 'none';
+    document.getElementById('cw').onmousemove = null;
+    document.querySelectorAll('.node').forEach(n=>n.classList.remove('src'));
+    ['drag','connect','delete'].forEach(k=>{
+      const b=document.getElementById('btn-'+k);
+      if(b) b.classList.toggle('active', k===m);
+    });
+    document.getElementById('cw').style.cursor = m==='delete'?'crosshair':'default';
+    if(m!=='drag') closePanel();
+    toast(m==='connect'?'Click a source node to begin':m==='delete'?'Click node or line to delete':'Hover to inspect · Click for full detail');
+  }
+
+  /* =============================================
+     PALETTE DRAG
+  ============================================= */
+  function pdrag(e) {
+    S.dragType = e.currentTarget.dataset.type;
+    e.dataTransfer.effectAllowed = 'copy';
+  }
+
+  document.getElementById('cw').addEventListener('dragover', e=>e.preventDefault());
+
+  function cdrop(e) {
+    e.preventDefault();
+    if(!S.dragType) return;
+    const r = document.getElementById('cw').getBoundingClientRect();
+    mkNode(S.dragType, e.clientX-r.left, e.clientY-r.top);
+    S.dragType = null;
+  }
+
+  /* =============================================
+     CREATE NODE
+  ============================================= */
+  function mkNode(type, x, y) {
+    const tmpl = TYPES[type];
+    const name = nname(type);
+    const node = { id:S.nextId++, type, x, y, data:tmpl.mk(name) };
+    S.nodes.push(node);
+    renderNode(node);
+    stats(); hideEmpty(); drawMinimap();
+  }
+
+  function renderNode(node) {
+    const t  = TYPES[node.type];
+    const el = document.createElement('div');
+    el.className='node'; el.id='node-'+node.id;
+    el.style.left=node.x+'px'; el.style.top=node.y+'px';
+    const sc={'ok':'s-ok','warn':'s-warn','critical':'s-crit'}[node.data.status]||'s-ok';
+    el.innerHTML=`
+      <div class="node-body" style="background:${t.bg};border-color:${t.color}55">
+        <span>${t.emoji}</span>
+        <div class="node-status-dot ${sc}"></div>
+      </div>
+      <div class="node-name">${node.data.name}</div>`;
+
+    /* Drag to reposition */
+    el.addEventListener('mousedown', e=>nDown(e,node.id));
+    /* Click for connect/delete/detail */
+    el.addEventListener('click',     e=>nClick(e,node.id));
+    /* Hover tooltip */
+    el.addEventListener('mouseenter',e=>showTip(e,node.id));
+    el.addEventListener('mouseleave',  ()=>hideTip());
+
+    document.getElementById('cw').appendChild(el);
+  }
+
+  /* =============================================
+     NODE DRAG
+     Classic mousedown → mousemove → mouseup pattern.
+     offsetX/Y records where on the node the user
+     clicked, so it doesn't jump to center on grab.
+  ============================================= */
+  let drag=null;
+  function nDown(e,id) {
+    if(S.mode!=='drag') return;
+    e.stopPropagation();
+    const r=document.getElementById('cw').getBoundingClientRect();
+    const n=S.nodes.find(n=>n.id===id);
+    drag={id, ox:e.clientX-r.left-n.x, oy:e.clientY-r.top-n.y};
+  }
+
+  document.addEventListener('mousemove', e=>{
+    if(!drag) return;
+    const r=document.getElementById('cw').getBoundingClientRect();
+    const n=S.nodes.find(n=>n.id===drag.id);
+    n.x=Math.max(36,Math.min(r.width -36, e.clientX-r.left-drag.ox));
+    n.y=Math.max(36,Math.min(r.height-36, e.clientY-r.top -drag.oy));
+    const el=document.getElementById('node-'+drag.id);
+    el.style.left=n.x+'px'; el.style.top=n.y+'px';
+    renderConns(); drawMinimap();
+    hideTip(); // hide tooltip while dragging
+  });
+
+  document.addEventListener('mouseup', ()=>{ drag=null; });
+
+  /* =============================================
+     NODE CLICK
+  ============================================= */
+  function nClick(e,id) {
+    e.stopPropagation();
+    if(S.mode==='delete'){ delNode(id); return; }
+    if(S.mode==='connect'){ handleConn(id); return; }
+    /* drag mode → show detail */
+    S.selId=id;
+    document.querySelectorAll('.node').forEach(n=>n.classList.remove('selected'));
+    document.getElementById('node-'+id).classList.add('selected');
+    showDetail(id);
+  }
+
+  /* =============================================
+     CONNECT MODE
+  ============================================= */
+  function handleConn(id) {
+    if(!S.srcId) {
+      S.srcId=id;
+      document.querySelectorAll('.node').forEach(n=>n.classList.remove('src'));
+      document.getElementById('node-'+id).classList.add('src');
+      const n=S.nodes.find(n=>n.id===id);
+      const tl=document.getElementById('temp-line');
+      tl.style.display=''; tl.setAttribute('x1',n.x); tl.setAttribute('y1',n.y);
+      tl.setAttribute('x2',n.x); tl.setAttribute('y2',n.y);
+      document.getElementById('cw').onmousemove=e=>{
+        const r=document.getElementById('cw').getBoundingClientRect();
+        tl.setAttribute('x2',e.clientX-r.left); tl.setAttribute('y2',e.clientY-r.top);
+      };
+      toast('Now click the destination node');
+    } else {
+      const from=S.srcId, to=id;
+      const dup=S.conns.some(c=>(c.f===from&&c.t===to)||(c.f===to&&c.t===from));
+      if(from!==to&&!dup){ S.conns.push({f:from,t:to}); renderConns(); stats(); toast('Connection created'); }
+      else toast('Already connected or same node');
+      S.srcId=null;
+      document.getElementById('temp-line').style.display='none';
+      document.getElementById('cw').onmousemove=null;
+      document.querySelectorAll('.node').forEach(n=>n.classList.remove('src'));
+      drawMinimap();
+    }
+  }
+
+  /* =============================================
+     RENDER CONNECTIONS (SVG lines)
+  ============================================= */
+  function renderConns() {
+    const layer=document.getElementById('conn-layer');
+    layer.innerHTML='';
+    S.conns.forEach(c=>{
+      const fn=S.nodes.find(n=>n.id===c.f);
+      const tn=S.nodes.find(n=>n.id===c.t);
+      if(!fn||!tn) return;
+      const dx=tn.x-fn.x, dy=tn.y-fn.y;
+      const d=Math.sqrt(dx*dx+dy*dy)||1, pad=27;
+      const line=document.createElementNS('http://www.w3.org/2000/svg','line');
+      line.setAttribute('x1',fn.x+(dx/d)*pad); line.setAttribute('y1',fn.y+(dy/d)*pad);
+      line.setAttribute('x2',tn.x-(dx/d)*pad); line.setAttribute('y2',tn.y-(dy/d)*pad);
+      line.setAttribute('class','conn-line');
+      line.setAttribute('marker-end','url(#arr)');
+      line.style.pointerEvents='all'; line.style.cursor='pointer';
+      line.addEventListener('click',()=>{ if(S.mode==='delete'){ S.conns=S.conns.filter(x=>x!==c); renderConns(); stats(); drawMinimap(); toast('Connection removed'); }});
+      layer.appendChild(line);
+    });
+  }
+
+  /* =============================================
+     HOVER TOOLTIP
+     Positions the tooltip above the hovered node.
+     Shows status badge + a short summary.
+     The ⓘ button toggles the full reason text.
+  ============================================= */
+  function showTip(e, id) {
+    if(drag) return; // don't show while dragging
+    S.hoverId = id;
+    S.reasonOpen = false;
+    const node = S.nodes.find(n=>n.id===id);
+    const d    = node.data;
+    const tip  = document.getElementById('hover-tip');
+    const badgeClass = {ok:'tb-ok',warn:'tb-warn',critical:'tb-crit'}[d.status];
+    const statusLabel= {ok:'SECURE',warn:'WARNING',critical:'CRITICAL'}[d.status];
+
+    document.getElementById('tip-name').textContent  = `${TYPES[node.type].emoji} ${d.name} · ${d.type}`;
+    document.getElementById('tip-badge').textContent = statusLabel;
+    document.getElementById('tip-badge').className   = 'tip-badge '+badgeClass;
+    document.getElementById('tip-reason').style.display = 'none';
+    document.getElementById('tip-reason').textContent   = REASONS[node.type]?.[d.status] || '';
+
+    const cveLen = d.cves.length;
+    const cveEl  = document.getElementById('tip-cve-count');
+    if(cveLen > 0) {
+      cveEl.style.color = cveLen >= 3 ? 'var(--red)' : 'var(--yellow)';
+      cveEl.style.fontFamily = "'JetBrains Mono', monospace";
+      cveEl.style.fontSize   = '10px';
+      cveEl.textContent = `⚠ ${cveLen} CVE${cveLen>1?'s':''} detected`;
+    } else {
+      cveEl.style.color = 'var(--green)';
+      cveEl.textContent = '✓ No CVEs detected';
+    }
+
+    /* Position tooltip above the node.
+       We use the mouse position + canvas offset. */
+    const cw   = document.getElementById('cw').getBoundingClientRect();
+    const node_el = document.getElementById('node-'+id);
+    const nr   = node_el.getBoundingClientRect();
+    let tx = nr.left - cw.left + 25;
+    let ty = nr.top  - cw.top  - 10;
+
+    tip.style.left    = tx + 'px';
+    tip.style.top     = ty + 'px';
+    tip.style.display = 'block';
+    tip.classList.add('visible');
+
+    /* Keep tooltip inside canvas bounds */
+    requestAnimationFrame(()=>{
+      const tw = tip.offsetWidth;
+      const cwW = cw.width;
+      if(tx + tw > cwW - 10) tip.style.left = (cwW - tw - 10) + 'px';
+      if(ty < 10) { tip.style.top = (nr.bottom - cw.top + 8) + 'px'; }
+    });
+  }
+
+  function hideTip() {
+    const tip = document.getElementById('hover-tip');
+    tip.classList.remove('visible');
+    tip.style.display = 'none';
+    S.hoverId = null; S.reasonOpen = false;
+  }
+
+  /* Toggle reason text visibility when ⓘ is clicked */
+  function toggleReason() {
+    S.reasonOpen = !S.reasonOpen;
+    const el = document.getElementById('tip-reason');
+    el.style.display = S.reasonOpen ? 'block' : 'none';
+  }
+
+  /* =============================================
+     DETAIL PANEL (right side)
+  ============================================= */
+  function showDetail(id) {
+    const node = S.nodes.find(n=>n.id===id);
+    if(!node) return;
+    const d=node.data, t=TYPES[node.type];
+    const bc={ok:'db-ok',warn:'db-warn',critical:'db-crit'}[d.status];
+    const bl={ok:'Secure',warn:'Warning',critical:'Critical'}[d.status];
+    const cveHTML=d.cves.length
+      ? d.cves.map(c=>`<div class="cve-card">
+          <div class="cve-id">${c.id}</div>
+          <div class="cve-name">${c.name}</div>
+          <span class="cve-sev ${c.sev==='critical'?'sc':c.sev==='high'?'sh':'sm'}">${c.sev.toUpperCase()}</span>
+        </div>`).join('')
+      : `<div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--green);padding:6px 0">✓ No vulnerabilities found</div>`;
+
+    document.getElementById('ri').innerHTML=`
+      <div class="detail-hdr">
+        <div class="detail-title">${t.emoji} ${d.name}</div>
+        <button class="close-btn" onclick="closePanel()">✕</button>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-title">// Overview</div>
+        <div class="d-row"><span class="d-key">TYPE</span><span class="d-val" style="color:${t.color}">${d.type}</span></div>
+        <div class="d-row"><span class="d-key">STATUS</span><span class="d-badge ${bc}">${bl}</span></div>
+        <div class="d-row"><span class="d-key">IP</span><span class="d-val" style="font-family:'JetBrains Mono',monospace;font-size:10px">${d.ip}</span></div>
+        <div class="d-row"><span class="d-key">SYSTEM</span><span class="d-val" style="font-size:10px">${d.os}</span></div>
+        <div class="d-row"><span class="d-key">UPTIME</span><span class="d-val">${d.uptime}</span></div>
+        <div class="d-row"><span class="d-key">LINKS</span><span class="d-val">${S.conns.filter(c=>c.f===id||c.t===id).length}</span></div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-title">// Status reason</div>
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted2);line-height:1.7;padding:4px 0">${REASONS[node.type]?.[d.status]||''}</div>
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-title">// CVEs (${d.cves.length})</div>
+        ${cveHTML}
+      </div>
+      <div class="d-sec">
+        <div class="d-sec-title">// Actions</div>
+        <button class="act-btn" onclick="toast('Scan started for ${d.name}')">🔍 Run scan</button>
+        <button class="act-btn" onclick="toast('Patches applied to ${d.name}')">🛠 Apply patches</button>
+        <button class="act-btn" onclick="toast('${d.name} isolated')">🔒 Isolate node</button>
+        <button class="act-btn red" onclick="delNode(${id})">✕ Remove node</button>
+      </div>`;
+
+    document.getElementById('rp').classList.add('open');
+  }
+
+  function closePanel() {
+    document.getElementById('rp').classList.remove('open');
+    document.querySelectorAll('.node').forEach(n=>n.classList.remove('selected'));
+    S.selId=null;
+  }
+
+  /* =============================================
+     DELETE
+  ============================================= */
+  function delNode(id) {
+    S.nodes=S.nodes.filter(n=>n.id!==id);
+    S.conns=S.conns.filter(c=>c.f!==id&&c.t!==id);
+    const el=document.getElementById('node-'+id);
+    if(el) el.remove();
+    renderConns(); stats(); drawMinimap();
+    if(S.selId===id) closePanel();
+    if(S.nodes.length===0) showEmpty();
+    hideTip(); toast('Node removed');
+  }
+
+  function clearAll() {
+    S.nodes.forEach(n=>{ const el=document.getElementById('node-'+n.id); if(el) el.remove(); });
+    S.nodes=[]; S.conns=[]; S.srcId=null; S.selId=null;
+    document.getElementById('temp-line').style.display='none';
+    document.getElementById('cw').onmousemove=null;
+    renderConns(); stats(); showEmpty(); closePanel(); drawMinimap(); toast('Canvas cleared');
+  }
+
+  function cwClick(e) {
+    if(S.mode==='connect'&&S.srcId){
+      S.srcId=null;
+      document.getElementById('temp-line').style.display='none';
+      document.getElementById('cw').onmousemove=null;
+      document.querySelectorAll('.node').forEach(n=>n.classList.remove('src'));
+      toast('Connection cancelled');
+    }
+    if(S.mode==='drag'){ closePanel(); }
+  }
+
+  /* =============================================
+     STATS
+  ============================================= */
+  function stats() {
+    document.getElementById('sn').textContent=S.nodes.length;
+    document.getElementById('sl').textContent=S.conns.length;
+    document.getElementById('sv').textContent=S.nodes.reduce((s,n)=>s+n.data.cves.length,0);
+  }
+
+  function hideEmpty(){ document.getElementById('ce').style.display='none'; }
+  function showEmpty(){ document.getElementById('ce').style.display='flex'; }
+
+  /* =============================================
+     MINIMAP
+     Drawn on a <canvas> element.
+     Maps full canvas coordinates → minimap size.
+     Shows:
+       - connection lines (thin purple lines)
+       - nodes as colored dots
+       - status dot overlay (green/yellow/red)
+     Redrawn every time topology changes.
+  ============================================= */
+  function drawMinimap() {
+    const mm     = document.getElementById('minimap-canvas');
+    const cw     = document.getElementById('cw');
+    const W      = mm.offsetWidth  || 160;
+    const H      = mm.offsetHeight || 110;
+    const dpr    = window.devicePixelRatio || 1;
+    mm.width     = W * dpr;
+    mm.height    = H * dpr;
+    const ctx    = mm.getContext('2d');
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0,0,W,H);
+
+    if(S.nodes.length === 0) {
+      ctx.fillStyle = 'rgba(107,95,138,0.3)';
+      ctx.font = '8px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('empty', W/2, H/2+3);
+      return;
+    }
+
+    /* Scale: map canvas coords to minimap coords.
+       We find the bounding box of all nodes and
+       fit them into the minimap with padding. */
+    const CW = cw.offsetWidth  || 800;
+    const CH = cw.offsetHeight || 500;
+    const PAD = 12;
+    const scaleX = (W - PAD*2) / CW;
+    const scaleY = (H - PAD*2) / CH;
+    const mx = x => PAD + x * scaleX;
+    const my = y => PAD + y * scaleY;
+
+    /* Draw connections */
+    ctx.strokeStyle = 'rgba(168,85,247,0.3)';
+    ctx.lineWidth   = 0.8;
+    S.conns.forEach(c=>{
+      const fn=S.nodes.find(n=>n.id===c.f);
+      const tn=S.nodes.find(n=>n.id===c.t);
+      if(!fn||!tn) return;
+      ctx.beginPath();
+      ctx.moveTo(mx(fn.x), my(fn.y));
+      ctx.lineTo(mx(tn.x), my(tn.y));
+      ctx.stroke();
+    });
+
+    /* Draw nodes as dots */
+    S.nodes.forEach(node=>{
+      const t   = TYPES[node.type];
+      const x   = mx(node.x);
+      const y   = my(node.y);
+      const r   = 4;
+
+      /* Outer glow ring using type color */
+      ctx.beginPath();
+      ctx.arc(x, y, r+1.5, 0, Math.PI*2);
+      ctx.fillStyle = t.color.replace('var(--c-','').replace(')',''); // fallback
+      /* Use actual computed color */
+      const colMap = {
+        server:'rgba(96,165,250,0.3)', router:'rgba(52,211,153,0.3)',
+        firewall:'rgba(248,113,113,0.3)', endpoint:'rgba(251,191,36,0.3)',
+        cloud:'rgba(168,85,247,0.3)', iot:'rgba(251,146,60,0.3)'
+      };
+      ctx.fillStyle = colMap[node.type] || 'rgba(168,85,247,0.3)';
+      ctx.fill();
+
+      /* Solid center dot */
+      const solidMap = {
+        server:'#60a5fa', router:'#34d399', firewall:'#f87171',
+        endpoint:'#fbbf24', cloud:'#a855f7', iot:'#fb923c'
+      };
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI*2);
+      ctx.fillStyle = solidMap[node.type] || '#a855f7';
+      ctx.fill();
+
+      /* Status indicator — tiny dot offset from node */
+      const statusCol = {ok:'#34d399', warn:'#fbbf24', critical:'#f87171'}[node.data.status];
+      ctx.beginPath();
+      ctx.arc(x+3.5, y-3.5, 2, 0, Math.PI*2);
+      ctx.fillStyle = statusCol;
+      ctx.fill();
+    });
+
+    /* Selected node highlight */
+    if(S.selId) {
+      const sn = S.nodes.find(n=>n.id===S.selId);
+      if(sn) {
+        ctx.beginPath();
+        ctx.arc(mx(sn.x), my(sn.y), 6, 0, Math.PI*2);
+        ctx.strokeStyle = 'rgba(168,85,247,0.9)';
+        ctx.lineWidth   = 1.5;
+        ctx.stroke();
+      }
+    }
+  }
+
+  /* =============================================
+     TOAST
+  ============================================= */
+  let tTimer;
+  function toast(msg) {
+    const el=document.getElementById('toast');
+    el.textContent=msg; el.classList.add('show');
+    clearTimeout(tTimer);
+    tTimer=setTimeout(()=>el.classList.remove('show'),2200);
+  }
+
+  /* =============================================
+     STARTER TOPOLOGY
+     Loads a pre-built sample so the canvas
+     looks useful immediately on first open.
+  ============================================= */
+  function loadStarter() {
+    const cw=document.getElementById('cw');
+    const W=cw.offsetWidth||800, H=cw.offsetHeight||500;
+    const cx=W/2, cy=H/2;
+    const positions=[
+      {type:'firewall', x:cx,       y:cy-160},
+      {type:'router',   x:cx-150,   y:cy-40 },
+      {type:'router',   x:cx+150,   y:cy-40 },
+      {type:'server',   x:cx-230,   y:cy+110},
+      {type:'endpoint', x:cx-80,    y:cy+110},
+      {type:'cloud',    x:cx+80,    y:cy+110},
+      {type:'iot',      x:cx+230,   y:cy+110},
+    ];
+    positions.forEach(p=>mkNode(p.type,p.x,p.y));
+    const ids=S.nodes.map(n=>n.id);
+    [[0,1],[0,2],[1,3],[1,4],[2,5],[2,6]].forEach(([a,b])=>{
+      S.conns.push({f:ids[a],t:ids[b]});
+    });
+    renderConns(); stats(); hideEmpty(); drawMinimap();
+    toast('Sample topology loaded · hover any node for quick info');
+  }
+
+  window.addEventListener('load', ()=>setTimeout(loadStarter,120));
+  window.addEventListener('resize', drawMinimap);
+</script>
+</body>
+</html>
